@@ -3,20 +3,37 @@ kind: Task
 metadata:
   name: rosa-hcp-metadata
 spec:
+  params:
+    - name: ocp-release-stream
+      type: string
+      description: Openshift Channel to get release versions. Default '4-stable'
+      default: '4-stable'
+    - name: ocp-release-prefix
+      type: string
+      description: Openshift version prefix. E.G '4.15', '4.14' etc. Default 'latest'
+      default: 'latest'
   results:
     - name: cluster-name
       description: The generated name for the OpenShift cluster.
+    - name: ocp-version
+      description: Returns latest known ocp version from release-stream.
   steps:
-    - name: generate-cluster-name
-      image: registry.access.redhat.com/ubi9/openssl:9.1-2
+    - name: generate-cluster-metadata
+      image: quay.io/konflux-qe-incubator/konflux-qe-tools:latest
       script: |
         #!/usr/bin/env bash
         set -o errexit
         set -o nounset
         set -o pipefail
-
+        
+        OCP_VERSION=$(curl -s -L -H "Accepts: application/json" \
+          https://amd64.ocp.releases.ci.openshift.org/api/v1/releasestream/$(params.ocp-release-stream)/latest\?prefix\=$(params.ocp-release-prefix) | \
+          jq -r .name)
+        
+        echo -e "[INFO]: Openshift release detected - Release Stream $(params.ocp-release-stream), OCP Version: $OCP_VERSION"
         # Generate a unique cluster name using a prefix and a random hex string
         CLUSTER_NAME="kx-$( openssl rand -hex 5 )"
         
-        # Output the cluster name to the specified result path
+        # Output the cluster name and ocp version to the specified result path
         echo -n "$CLUSTER_NAME" | tee $(results.cluster-name.path)
+        echo -n "$OCP_VERSION" | tee $(results.ocp-version.path)

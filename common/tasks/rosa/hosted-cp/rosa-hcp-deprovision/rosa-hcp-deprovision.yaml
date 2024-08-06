@@ -187,3 +187,46 @@ spec:
         fi
 
         echo "INFO: [$(date +"%Y/%m/%d %H:%M:%S")] Done"
+    - name: remove-tag-from-subnets
+      image: quay.io/konflux-qe-incubator/konflux-qe-tools:latest
+      volumeMounts:
+        - name:  aws-credential-volume
+          mountPath: /usr/local/aws-credential
+        - name:  hcp-config-volume
+          mountPath: /usr/local/hcp-config
+      script: |
+        set -o errexit
+        set -o nounset
+        set -o pipefail
+
+        CLUSTER_NAME=$(params.cluster-name)
+        REGION=$(cat /usr/local/hcp-config/REGION)
+        AWS_ACCESS_KEY_ID=$(cat /usr/local/aws-credential/AWS_ACCESS_KEY_ID)
+        AWS_SECRET_ACCESS_KEY=$(cat /usr/local/aws-credential/AWS_SECRET_ACCESS_KEY)
+        ROSA_TOKEN=$(cat /usr/local/hcp-config/ROSA_TOKEN)
+        SUBNET_IDS=$(cat /usr/local/hcp-config/SUBNET_IDS)
+
+        config_aws_creds() {
+            aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+            aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+            aws configure set region "$REGION"
+        }
+
+        echo "INFO: [$(date +"%Y/%m/%d %H:%M:%S")] Started to remove tags of cluster [$CLUSTER_NAME]..."
+
+        printf "INFO: Logging in to your Red Hat account...\n"
+        config_aws_creds
+        rosa login --token="$ROSA_TOKEN"
+
+        if [[ -n "$CLUSTER_NAME"  ]]; then
+            cluster_id=$(rosa --region "$REGION"  describe cluster --cluster="$CLUSTER_NAME" -o json | jq -r .id)
+            echo "INFO: Cluster ID: $cluster_id"
+
+            echo "INFO: Removing tag from subnets [$SUBNET_IDS]..."
+            new_subnet_ids="${SUBNET_IDS//,/ }"
+            aws --region "$REGION" ec2 delete-tags --resources $new_subnet_ids --tags Key="kubernetes.io/cluster/${cluster_id}"
+
+            echo "INFO: [$(date +"%Y/%m/%d %H:%M:%S")] Done"
+        else
+          echo "INFO: No OCP cluster tag needs to be removed."
+        fi
